@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import init_db
+from .routes.auth import router as auth_router
 from .routes.runs import router as runs_router
 
 
@@ -17,6 +18,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     init_db()
+    app.include_router(auth_router)
     app.include_router(runs_router)
 
     @app.get("/health")

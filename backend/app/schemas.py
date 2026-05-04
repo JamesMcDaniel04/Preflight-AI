@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Any
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class CreateRunRequest(BaseModel):
@@ -8,8 +11,15 @@ class CreateRunRequest(BaseModel):
     success_criteria: str = Field(min_length=5, max_length=2000)
     scenario_count: int = Field(default=100, ge=5, le=500)
     model: str = "gpt-4o-mini"
+    run_mode: Literal["single_turn", "multi_turn"] = "single_turn"
     ship_threshold: float = Field(default=0.85, ge=0.50, le=1.00)
     hold_threshold: float = Field(default=0.70, ge=0.0, le=0.99)
+
+    @model_validator(mode="after")
+    def validate_thresholds(self) -> "CreateRunRequest":
+        if self.ship_threshold <= self.hold_threshold:
+            raise ValueError("ship_threshold must be greater than hold_threshold")
+        return self
 
 
 class CreateRunResponse(BaseModel):
@@ -27,6 +37,8 @@ class PartialResults(BaseModel):
 
 class RunStatus(BaseModel):
     run_id: str
+    run_mode: str
+    scenario_count: int
     status: str
     progress_pct: int
     partial_results: PartialResults | None = None
@@ -52,6 +64,7 @@ class RerunResponse(BaseModel):
     new_scenario_id: str
     input: str
     output: str
+    transcript: list[dict] | None = None
     latency_ms: int
     classified_as: str
     failure_reason: str | None = None
@@ -63,6 +76,9 @@ class ReportResponse(BaseModel):
     base_prompt: str
     success_criteria: str
     model: str
+    run_mode: str
+    ship_threshold: float
+    hold_threshold: float
     success_rate: float
     total_runs: int
     avg_latency_ms: float
@@ -80,7 +96,31 @@ class RunSummary(BaseModel):
     base_prompt_preview: str
     scenario_count: int
     model: str
+    run_mode: str
     status: str
     progress_pct: int
     success_rate: float | None = None
     verdict: str | None = None
+
+
+class UserSummary(BaseModel):
+    id: str
+    email: EmailStr
+
+    @classmethod
+    def from_model(cls, user) -> "UserSummary":
+        return cls(id=user.id, email=user.email)
+
+
+class AuthResponse(BaseModel):
+    user: UserSummary | None
+
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=200)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=200)

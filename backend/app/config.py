@@ -15,10 +15,19 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     max_concurrent_llm_calls: int = 5
     allow_origins: str = "http://localhost:5173"
+    session_secret: str = "change-me"
+    session_cookie_name: str = "preflight_session"
+    csrf_cookie_name: str = "preflight_csrf"
+    session_ttl_seconds: int = 60 * 60 * 24 * 7
+    cookie_secure: bool = False
 
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allow_origins.split(",") if o.strip()]
+
+    @property
+    def cookie_samesite(self) -> str:
+        return "none" if self.cookie_secure else "lax"
 
 
 @lru_cache
