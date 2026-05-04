@@ -31,8 +31,8 @@ celery_app.conf.update(
 
 
 @celery_app.task(name="preflight.run_pipeline")
-def run_pipeline_task(run_id: str) -> str:
+def run_pipeline_task(run_id: str, openai_key: str | None = None) -> str:
     from app.tasks import run_pipeline
 
-    run_pipeline(run_id)
+    run_pipeline(run_id, openai_key=openai_key)
     return run_id

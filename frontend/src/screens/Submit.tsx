@@ -1,6 +1,7 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { getOpenAIKey } from "../keyStore";
 
 const N_OPTIONS = [50, 100, 250, 500] as const;
 const MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4o"] as const;
@@ -16,7 +17,7 @@ const COST_TABLE: Record<number, [number, number]> = {
   500: [0.57, 540],
 };
 
-export default function Submit() {
+export default function Submit({ onOpenSettings }: { onOpenSettings: () => void }) {
   const navigate = useNavigate();
   const [basePrompt, setBasePrompt] = useState("");
   const [criteria, setCriteria] = useState(DEFAULT_CRITERIA);
@@ -24,6 +25,20 @@ export default function Submit() {
   const [model, setModel] = useState<string>(MODEL_OPTIONS[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasKey, setHasKey] = useState(() => Boolean(getOpenAIKey()));
+
+  // Re-check key after the settings modal closes (no event bus needed — poll on focus).
+  useEffect(() => {
+    function refresh() {
+      setHasKey(Boolean(getOpenAIKey()));
+    }
+    window.addEventListener("focus", refresh);
+    const id = setInterval(refresh, 1000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      clearInterval(id);
+    };
+  }, []);
 
   const [estCost, estSecs] = useMemo(() => COST_TABLE[n], [n]);
 
@@ -54,6 +69,21 @@ export default function Submit() {
           tell you if it's safe to ship.
         </p>
       </div>
+
+      {!hasKey && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm flex items-center justify-between">
+          <span className="text-amber-900">
+            No OpenAI API key set. We need one to call OpenAI on your behalf.
+          </span>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="rounded-md bg-amber-600 text-white text-xs px-3 py-1 hover:bg-amber-700"
+          >
+            Add key
+          </button>
+        </div>
+      )}
 
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Base prompt</label>
@@ -136,10 +166,10 @@ export default function Submit() {
 
       <button
         type="submit"
-        disabled={submitting}
+        disabled={submitting || !hasKey}
         className="rounded-md bg-sky-600 text-white px-5 py-2.5 text-sm font-medium hover:bg-sky-700 disabled:bg-slate-300"
       >
-        {submitting ? "Starting…" : "Run Preflight"}
+        {submitting ? "Starting…" : hasKey ? "Run Preflight" : "Add an OpenAI key to continue"}
       </button>
     </form>
   );

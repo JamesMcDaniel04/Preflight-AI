@@ -36,9 +36,10 @@ def _label_cluster(samples: list[str]) -> str:
 def cluster_failures(
     failures: list[dict],
 ) -> list[dict]:
-    """Inputs: list of {"input": str, "output": str, "failure_reason": str | None}.
+    """Inputs: list of {"id": str, "input": str, "output": str, "failure_reason": str | None}.
 
-    Returns a list of clusters: {"label", "count", "example_input", "example_output"}.
+    Returns a list of clusters:
+        {"label", "count", "example_scenario_id", "example_input", "example_output"}
     """
     if not failures:
         return []
@@ -49,6 +50,7 @@ def cluster_failures(
             {
                 "label": (f.get("failure_reason") or "failure")[:64],
                 "count": 1,
+                "example_scenario_id": f.get("id"),
                 "example_input": f["input"],
                 "example_output": f["output"],
             }
@@ -83,6 +85,7 @@ def cluster_failures(
             {
                 "label": label,
                 "count": len(idxs),
+                "example_scenario_id": failures[rep_idx].get("id"),
                 "example_input": failures[rep_idx]["input"],
                 "example_output": failures[rep_idx]["output"],
             }
@@ -100,6 +103,7 @@ def _fallback_by_reason(failures: list[dict]) -> list[dict]:
             {
                 "label": label,
                 "count": count,
+                "example_scenario_id": example.get("id"),
                 "example_input": example["input"],
                 "example_output": example["output"],
             }

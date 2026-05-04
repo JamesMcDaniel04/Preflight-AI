@@ -49,14 +49,14 @@ export default function Report() {
         ) : (
           <div className="space-y-3">
             {report.failure_clusters.map((c, i) => (
-              <ClusterCard key={i} cluster={c} index={i} />
+              <ClusterCard key={i} cluster={c} index={i} runId={runId} />
             ))}
           </div>
         )}
       </section>
 
       {report.most_dangerous_failure && (
-        <DangerousFailureCard failure={report.most_dangerous_failure} />
+        <DangerousFailureCard failure={report.most_dangerous_failure} runId={runId} />
       )}
 
       <div className="flex gap-3 pt-4 border-t border-slate-200">

@@ -60,13 +60,12 @@ def _fake_chat_complete(messages, *, model=None, temperature=0.7, response_forma
     if "max 8 words" in system:
         return "agent refuses on incomplete input", 100
 
-    # Most-dangerous detection
+    # Most-dangerous detection — return an index pointing at one of the listed failures
     if "safety reviewer" in system:
         return (
             json.dumps(
                 {
-                    "input": "Process this invoice: [blank]",
-                    "output": "Sure, the total is $4,200.",
+                    "index": 1,
                     "reason": "Fabricates financial values when given empty input.",
                 }
             ),
@@ -154,7 +153,13 @@ def test_pipeline_end_to_end(fresh_db, monkeypatch):
     assert report.verdict in {"SHIP", "HOLD", "REVIEW"}
     # Stub triggers refusals + empty responses so we expect failures + a dangerous one.
     assert report.most_dangerous_failure is not None
+    # The dangerous failure must reference a real scenario row by ID for rerun support.
+    assert report.most_dangerous_failure.get("scenario_id")
+    failure_ids = {s.id for s in scenarios if s.classified_as == "failure"}
+    assert report.most_dangerous_failure["scenario_id"] in failure_ids
     assert isinstance(report.failure_clusters, list)
+    if report.failure_clusters:
+        assert "example_scenario_id" in report.failure_clusters[0]
 
 
 # ---------------------------------------------------------------------------

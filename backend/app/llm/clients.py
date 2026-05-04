@@ -1,11 +1,13 @@
 """LLM clients with semaphore + exponential backoff.
 
-Slice 0 uses a synchronous OpenAI client (good enough for the thin E2E flow).
-Concurrency is bounded by `MAX_CONCURRENT_LLM_CALLS` via a threading semaphore;
-later slices that move to async/Celery will reuse the same wrappers.
+The OpenAI key is resolved per-call from a contextvar — set it once at the
+top of a request/task with `set_openai_key(...)` and every nested LLM call in
+the same context will use it. Falls back to the env-var key when no override
+is set, which keeps local dev without BYOK working.
 """
 from __future__ import annotations
 
+import contextvars
 import threading
 import time
 from typing import Iterable
@@ -17,16 +19,41 @@ from ..config import get_settings
 
 _settings = get_settings()
 _semaphore = threading.Semaphore(_settings.max_concurrent_llm_calls)
-_client: OpenAI | None = None
+
+_openai_key_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "openai_key", default=None
+)
+_client_cache: dict[str, OpenAI] = {}
+_cache_lock = threading.Lock()
+
+
+def set_openai_key(key: str | None) -> contextvars.Token:
+    """Set the OpenAI key for the current context. Returns a token to reset."""
+    return _openai_key_var.set(key or None)
+
+
+def reset_openai_key(token: contextvars.Token) -> None:
+    _openai_key_var.reset(token)
+
+
+def _resolve_key() -> str:
+    key = _openai_key_var.get() or _settings.openai_api_key
+    if not key:
+        raise RuntimeError(
+            "No OpenAI API key available. Either set OPENAI_API_KEY in the "
+            "environment or pass an X-OpenAI-Key header on the request."
+        )
+    return key
 
 
 def get_openai() -> OpenAI:
-    global _client
-    if _client is None:
-        if not _settings.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY not configured")
-        _client = OpenAI(api_key=_settings.openai_api_key)
-    return _client
+    key = _resolve_key()
+    with _cache_lock:
+        client = _client_cache.get(key)
+        if client is None:
+            client = OpenAI(api_key=key)
+            _client_cache[key] = client
+        return client
 
 
 _RETRYABLE = (RateLimitError, APITimeoutError, APIConnectionError, APIError)

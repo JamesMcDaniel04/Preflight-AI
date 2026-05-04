@@ -1,3 +1,5 @@
+import { getOpenAIKey } from "./keyStore";
+
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
 
 export type CreateRunRequest = {
@@ -31,14 +33,26 @@ export type RunStatus = {
 export type FailureCluster = {
   label: string;
   count: number;
+  example_scenario_id: string | null;
   example_input: string;
   example_output: string;
 };
 
 export type DangerousFailure = {
+  scenario_id: string | null;
   input: string;
   output: string;
   reason: string;
+};
+
+export type RerunResponse = {
+  new_scenario_id: string;
+  input: string;
+  output: string;
+  latency_ms: number;
+  classified_as: "success" | "failure" | "unclear";
+  failure_reason: string | null;
+  heuristic_flag: string | null;
 };
 
 export type ReportResponse = {
@@ -69,10 +83,19 @@ export type RunSummary = {
   verdict: ReportResponse["verdict"] | null;
 };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit & { sendKey?: boolean }
+): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (init?.sendKey) {
+    const key = getOpenAIKey();
+    if (key) headers["X-OpenAI-Key"] = key;
+  }
+  const { sendKey: _omit, ...fetchInit } = init ?? {};
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
+    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+    ...fetchInit,
   });
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -92,8 +115,14 @@ export const api = {
     request<CreateRunResponse>("/api/runs", {
       method: "POST",
       body: JSON.stringify(body),
+      sendKey: true,
     }),
   getStatus: (runId: string) => request<RunStatus>(`/api/runs/${runId}/status`),
   getReport: (runId: string) => request<ReportResponse>(`/api/runs/${runId}/report`),
   listRuns: () => request<RunSummary[]>("/api/runs"),
+  rerunScenario: (runId: string, scenarioId: string) =>
+    request<RerunResponse>(`/api/runs/${runId}/scenarios/${scenarioId}/rerun`, {
+      method: "POST",
+      sendKey: true,
+    }),
 };

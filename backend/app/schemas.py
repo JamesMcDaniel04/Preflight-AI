@@ -34,14 +34,26 @@ class RunStatus(BaseModel):
 class FailureCluster(BaseModel):
     label: str
     count: int
+    example_scenario_id: str | None = None
     example_input: str
     example_output: str
 
 
 class DangerousFailure(BaseModel):
+    scenario_id: str | None = None
     input: str
     output: str
     reason: str
+
+
+class RerunResponse(BaseModel):
+    new_scenario_id: str
+    input: str
+    output: str
+    latency_ms: int
+    classified_as: str
+    failure_reason: str | None = None
+    heuristic_flag: str | None = None
 
 
 class ReportResponse(BaseModel):

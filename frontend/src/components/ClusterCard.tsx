@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { FailureCluster } from "../api";
+import RerunButton from "./RerunButton";
 
-export default function ClusterCard({ cluster, index }: { cluster: FailureCluster; index: number }) {
+export default function ClusterCard({
+  cluster,
+  index,
+  runId,
+}: {
+  cluster: FailureCluster;
+  index: number;
+  runId: string;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="rounded-md border border-slate-200 bg-white p-4">
@@ -36,6 +45,7 @@ export default function ClusterCard({ cluster, index }: { cluster: FailureCluste
               {cluster.example_output}
             </pre>
           </div>
+          <RerunButton runId={runId} scenarioId={cluster.example_scenario_id} />
         </div>
       )}
     </div>

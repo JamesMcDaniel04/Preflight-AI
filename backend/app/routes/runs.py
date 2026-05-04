@@ -5,11 +5,14 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..cost import estimate
 from ..db import get_db
+from ..llm.classifier import classify_with_llm, heuristic_flag
+from ..llm.clients import set_openai_key, reset_openai_key
 from ..models import Scenario, SimulationReport, SimulationRun
 from ..schemas import (
     CreateRunRequest,
@@ -18,31 +21,53 @@ from ..schemas import (
     FailureCluster,
     PartialResults,
     ReportResponse,
+    RerunResponse,
     RunStatus,
     RunSummary,
 )
+from ..simulation.runner import run_scenario
 from ..tasks import MILESTONES, run_pipeline
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
-def _start_pipeline(run_id: str) -> None:
+def _start_pipeline(run_id: str, openai_key: str | None) -> None:
     """Dispatch the pipeline to Celery when a worker is reachable; otherwise
     fall back to a daemon thread so local dev works without Redis."""
     try:
         from celery_app import run_pipeline_task
 
-        run_pipeline_task.apply_async(args=[run_id])
+        run_pipeline_task.apply_async(args=[run_id, openai_key])
         return
     except Exception:
         # Broker unreachable or Celery not installed — degrade to threading.
         import threading
 
-        threading.Thread(target=run_pipeline, args=(run_id,), daemon=True).start()
+        threading.Thread(
+            target=run_pipeline,
+            args=(run_id,),
+            kwargs={"openai_key": openai_key},
+            daemon=True,
+        ).start()
 
 
 @router.post("", response_model=CreateRunResponse)
-def create_run(req: CreateRunRequest, db: Session = Depends(get_db)) -> CreateRunResponse:
+def create_run(
+    req: CreateRunRequest,
+    db: Session = Depends(get_db),
+    x_openai_key: str | None = Header(default=None, alias="X-OpenAI-Key"),
+) -> CreateRunResponse:
+    # BYOK: header takes precedence over the env-var key. We never persist it.
+    settings = get_settings()
+    if not x_openai_key and not settings.openai_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No OpenAI API key. Set one in Settings (frontend) or "
+                "configure OPENAI_API_KEY on the server."
+            ),
+        )
+
     run = SimulationRun(
         base_prompt=req.base_prompt,
         success_criteria=req.success_criteria,
@@ -56,7 +81,7 @@ def create_run(req: CreateRunRequest, db: Session = Depends(get_db)) -> CreateRu
     db.refresh(run)
 
     cost, secs = estimate(req.scenario_count)
-    _start_pipeline(run.id)
+    _start_pipeline(run.id, openai_key=x_openai_key)
     return CreateRunResponse(run_id=run.id, estimated_cost_usd=round(cost, 4), estimated_seconds=secs)
 
 
@@ -125,6 +150,72 @@ def get_report(run_id: str, db: Session = Depends(get_db)) -> ReportResponse:
         verdict=report.verdict,
         verdict_reason=report.verdict_reason,
         generated_at=report.generated_at,
+    )
+
+
+@router.post("/{run_id}/scenarios/{scenario_id}/rerun", response_model=RerunResponse)
+def rerun_scenario(
+    run_id: str,
+    scenario_id: str,
+    db: Session = Depends(get_db),
+    x_openai_key: str | None = Header(default=None, alias="X-OpenAI-Key"),
+) -> RerunResponse:
+    """Re-execute a single scenario with identical input and classify it.
+
+    Synchronous on purpose — the user is staring at a button and wants the
+    result inline, not a polling loop for a single call.
+    """
+    settings = get_settings()
+    if not x_openai_key and not settings.openai_api_key:
+        raise HTTPException(status_code=400, detail="No OpenAI API key.")
+
+    run = db.get(SimulationRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    original = db.get(Scenario, scenario_id)
+    if not original or original.run_id != run_id:
+        raise HTTPException(status_code=404, detail="scenario not found in this run")
+
+    new = Scenario(run_id=run_id, persona_seed=original.persona_seed, input=original.input)
+    db.add(new)
+    db.commit()
+    db.refresh(new)
+
+    token = set_openai_key(x_openai_key) if x_openai_key else None
+    try:
+        output, latency_ms, err = run_scenario(run.base_prompt, original.input, model=run.model)
+        flag = heuristic_flag(output) if not err else "empty_response"
+        if err:
+            classified, reason = "failure", f"runtime error: {err}"
+        elif flag is not None:
+            classified, reason = "failure", flag
+        else:
+            try:
+                classified, reason = classify_with_llm(
+                    output, run.success_criteria, model=run.model
+                )
+            except Exception as e:
+                classified, reason = "unclear", f"classifier error: {str(e)[:200]}"
+    finally:
+        if token is not None:
+            reset_openai_key(token)
+
+    new.output = output
+    new.latency_ms = latency_ms
+    new.heuristic_flag = flag
+    new.classified_as = classified
+    new.failure_reason = reason if classified != "success" else None
+    new.error = err
+    db.commit()
+
+    return RerunResponse(
+        new_scenario_id=new.id,
+        input=new.input,
+        output=new.output or "",
+        latency_ms=new.latency_ms or 0,
+        classified_as=new.classified_as or "unclear",
+        failure_reason=new.failure_reason,
+        heuristic_flag=new.heuristic_flag,
     )
 
 

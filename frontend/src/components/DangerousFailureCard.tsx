@@ -1,6 +1,13 @@
 import { DangerousFailure } from "../api";
+import RerunButton from "./RerunButton";
 
-export default function DangerousFailureCard({ failure }: { failure: DangerousFailure }) {
+export default function DangerousFailureCard({
+  failure,
+  runId,
+}: {
+  failure: DangerousFailure;
+  runId: string;
+}) {
   return (
     <div className="rounded-md border-2 border-red-300 bg-red-50 p-4 space-y-3">
       <div className="flex items-center gap-2 text-red-800 font-semibold">
@@ -23,6 +30,7 @@ export default function DangerousFailureCard({ failure }: { failure: DangerousFa
         <div className="text-xs font-semibold text-red-700 uppercase">Why this is dangerous</div>
         <p className="mt-1 text-sm text-red-900">{failure.reason}</p>
       </div>
+      <RerunButton runId={runId} scenarioId={failure.scenario_id} />
     </div>
   );
 }

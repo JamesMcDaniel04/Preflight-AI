@@ -17,6 +17,7 @@ from .analysis.dangerous import detect_most_dangerous
 from .analysis.verdict import compute_verdict
 from .db import session_scope
 from .llm.classifier import classify_with_llm, heuristic_flag
+from .llm.clients import set_openai_key, reset_openai_key
 from .models import Scenario, SimulationReport, SimulationRun
 from .simulation.generator import generate_scenarios
 from .simulation.runner import run_scenario
@@ -42,8 +43,23 @@ def _set_progress(session, run_id: str, completed: int, total: int) -> None:
     _emit_milestone_if_needed(session, run)
 
 
-def run_pipeline(run_id: str, *, use_stub_generator: bool = False) -> None:
-    """Execute the full simulation pipeline for a given run."""
+def run_pipeline(
+    run_id: str, *, use_stub_generator: bool = False, openai_key: str | None = None
+) -> None:
+    """Execute the full simulation pipeline for a given run.
+
+    `openai_key`, when provided, overrides the env-var key for the duration of
+    this run via a contextvar — every nested LLM call picks it up.
+    """
+    token = set_openai_key(openai_key) if openai_key else None
+    try:
+        _run_pipeline_inner(run_id, use_stub_generator=use_stub_generator)
+    finally:
+        if token is not None:
+            reset_openai_key(token)
+
+
+def _run_pipeline_inner(run_id: str, *, use_stub_generator: bool = False) -> None:
     with session_scope() as session:
         run = session.get(SimulationRun, run_id)
         if not run:
@@ -126,7 +142,12 @@ def run_pipeline(run_id: str, *, use_stub_generator: bool = False) -> None:
             avg_latency = float(mean(latencies)) if latencies else 0.0
 
             failure_dicts = [
-                {"input": s.input, "output": s.output or "", "failure_reason": s.failure_reason}
+                {
+                    "id": s.id,
+                    "input": s.input,
+                    "output": s.output or "",
+                    "failure_reason": s.failure_reason,
+                }
                 for s in failure_objs
             ]
             try:
