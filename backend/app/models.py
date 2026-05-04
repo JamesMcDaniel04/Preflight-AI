@@ -22,6 +22,8 @@ class SimulationRun(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|running|complete|failed
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)
     last_milestone_emitted: Mapped[int] = mapped_column(Integer, default=0)
+    ship_threshold: Mapped[float] = mapped_column(Float, default=0.85)
+    hold_threshold: Mapped[float] = mapped_column(Float, default=0.70)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     scenarios: Mapped[list["Scenario"]] = relationship(back_populates="run", cascade="all, delete-orphan")

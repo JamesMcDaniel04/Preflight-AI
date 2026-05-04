@@ -8,6 +8,8 @@ class CreateRunRequest(BaseModel):
     success_criteria: str = Field(min_length=5, max_length=2000)
     scenario_count: int = Field(default=100, ge=5, le=500)
     model: str = "gpt-4o-mini"
+    ship_threshold: float = Field(default=0.85, ge=0.50, le=1.00)
+    hold_threshold: float = Field(default=0.70, ge=0.0, le=0.99)
 
 
 class CreateRunResponse(BaseModel):
