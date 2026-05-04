@@ -2,3 +2,29 @@
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Env
+.env
+.env.local
+
+# DB
+*.db
+*.sqlite
+*.sqlite3
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# OS
+.DS_Store

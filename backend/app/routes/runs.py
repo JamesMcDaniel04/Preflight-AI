@@ -27,12 +27,18 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
 def _start_pipeline(run_id: str) -> None:
-    """Run pipeline in a thread so it doesn't block the FastAPI event loop.
+    """Dispatch the pipeline to Celery when a worker is reachable; otherwise
+    fall back to a daemon thread so local dev works without Redis."""
+    try:
+        from celery_app import run_pipeline_task
 
-    Slice 1 swaps this for a Celery dispatch — the call signature stays the same.
-    """
-    import threading
-    threading.Thread(target=run_pipeline, args=(run_id,), daemon=True).start()
+        run_pipeline_task.apply_async(args=[run_id])
+        return
+    except Exception:
+        # Broker unreachable or Celery not installed — degrade to threading.
+        import threading
+
+        threading.Thread(target=run_pipeline, args=(run_id,), daemon=True).start()
 
 
 @router.post("", response_model=CreateRunResponse)
