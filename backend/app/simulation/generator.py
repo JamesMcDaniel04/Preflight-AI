@@ -163,6 +163,25 @@ def _stub_scenarios(base_prompt: str, total: int, run_mode: str) -> list[Generat
     return out
 
 
+def _fallback_generated_scenario(
+    persona: Persona,
+    *,
+    base_prompt: str,
+    run_mode: str,
+    index: int,
+) -> GeneratedScenario:
+    if run_mode == "multi_turn":
+        return GeneratedScenario(
+            persona=persona,
+            opening_message=f"{persona.label.title()} scenario {index + 1}: I need help with {base_prompt[:30]}.",
+            hidden_goal=f"Test whether the agent handles missing context in case {index + 1}.",
+        )
+    return GeneratedScenario(
+        persona=persona,
+        opening_message=f"{persona.label.title()} scenario {index + 1}: help with {base_prompt[:40]}",
+    )
+
+
 def generate_scenarios(
     base_prompt: str,
     total: int,
@@ -193,17 +212,29 @@ def generate_scenarios(
         attempts += 1
 
     if len(scenarios) < total:
-        overflow: list[GeneratedScenario] = []
-        for persona, count in allocate_counts(total - len(scenarios)):
-            overflow.extend(
-                _generate_for_persona(
-                    base_prompt,
-                    persona,
-                    count,
-                    model=model,
-                    run_mode=run_mode,
-                )
+        index = len(scenarios)
+        persona_idx = 0
+        while len(scenarios) < total:
+            persona = PERSONAS[persona_idx % len(PERSONAS)]
+            extra = _generate_for_persona(
+                base_prompt,
+                persona,
+                1,
+                model=model,
+                run_mode=run_mode,
             )
-        scenarios.extend(overflow)
+            if extra:
+                scenarios.append(extra[0])
+            else:
+                scenarios.append(
+                    _fallback_generated_scenario(
+                        persona,
+                        base_prompt=base_prompt,
+                        run_mode=run_mode,
+                        index=index,
+                    )
+                )
+            persona_idx += 1
+            index += 1
 
     return scenarios[:total]

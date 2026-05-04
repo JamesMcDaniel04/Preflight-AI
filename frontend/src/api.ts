@@ -1,12 +1,25 @@
-import { getOpenAIKey } from "./keyStore";
+import { getAnthropicKey, getOpenAIKey } from "./keyStore";
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
+const CSRF_COOKIE_NAME = "preflight_csrf";
+
+export type User = {
+  id: string;
+  email: string;
+};
+
+export type AuthResponse = {
+  user: User | null;
+};
 
 export type CreateRunRequest = {
   base_prompt: string;
   success_criteria: string;
   scenario_count: number;
   model: string;
+  run_mode: "single_turn" | "multi_turn";
+  ship_threshold: number;
+  hold_threshold: number;
 };
 
 export type CreateRunResponse = {
@@ -24,6 +37,8 @@ export type PartialResults = {
 
 export type RunStatus = {
   run_id: string;
+  run_mode: "single_turn" | "multi_turn";
+  scenario_count: number;
   status: "pending" | "running" | "complete" | "failed";
   progress_pct: number;
   partial_results: PartialResults | null;
@@ -49,6 +64,7 @@ export type RerunResponse = {
   new_scenario_id: string;
   input: string;
   output: string;
+  transcript: Array<{ role: string; content: string }> | null;
   latency_ms: number;
   classified_as: "success" | "failure" | "unclear";
   failure_reason: string | null;
@@ -60,6 +76,9 @@ export type ReportResponse = {
   base_prompt: string;
   success_criteria: string;
   model: string;
+  run_mode: "single_turn" | "multi_turn";
+  ship_threshold: number;
+  hold_threshold: number;
   success_rate: number;
   total_runs: number;
   avg_latency_ms: number;
@@ -77,25 +96,43 @@ export type RunSummary = {
   base_prompt_preview: string;
   scenario_count: number;
   model: string;
+  run_mode: "single_turn" | "multi_turn";
   status: RunStatus["status"];
   progress_pct: number;
   success_rate: number | null;
   verdict: ReportResponse["verdict"] | null;
 };
 
+function readCookie(name: string): string | null {
+  const parts = document.cookie.split(";").map((part) => part.trim());
+  const match = parts.find((part) => part.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.split("=", 2)[1]) : null;
+}
+
 async function request<T>(
   path: string,
-  init?: RequestInit & { sendKey?: boolean }
+  init?: RequestInit & { sendProviderKeys?: boolean }
 ): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (init?.sendKey) {
-    const key = getOpenAIKey();
-    if (key) headers["X-OpenAI-Key"] = key;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const csrf = readCookie(CSRF_COOKIE_NAME);
+    if (csrf) headers["X-CSRF-Token"] = csrf;
   }
-  const { sendKey: _omit, ...fetchInit } = init ?? {};
+  if (init?.sendProviderKeys) {
+    const openai = getOpenAIKey();
+    const anthropic = getAnthropicKey();
+    if (openai) headers["X-OpenAI-Key"] = openai;
+    if (anthropic) headers["X-Anthropic-Key"] = anthropic;
+  }
+  const { sendProviderKeys: _omit, ...fetchInit } = init ?? {};
   const res = await fetch(`${BASE}${path}`, {
-    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+    credentials: "include",
     ...fetchInit,
+    headers,
   });
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -103,7 +140,7 @@ async function request<T>(
       const data = await res.json();
       msg = data.detail ?? msg;
     } catch {
-      /* swallow */
+      /* ignore */
     }
     throw new Error(msg);
   }
@@ -111,11 +148,23 @@ async function request<T>(
 }
 
 export const api = {
+  getMe: () => request<AuthResponse>("/api/auth/me"),
+  signup: (email: string, password: string) =>
+    request<AuthResponse>("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  login: (email: string, password: string) =>
+    request<AuthResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () => request<AuthResponse>("/api/auth/logout", { method: "POST" }),
   createRun: (body: CreateRunRequest) =>
     request<CreateRunResponse>("/api/runs", {
       method: "POST",
       body: JSON.stringify(body),
-      sendKey: true,
+      sendProviderKeys: true,
     }),
   getStatus: (runId: string) => request<RunStatus>(`/api/runs/${runId}/status`),
   getReport: (runId: string) => request<ReportResponse>(`/api/runs/${runId}/report`),
@@ -123,6 +172,6 @@ export const api = {
   rerunScenario: (runId: string, scenarioId: string) =>
     request<RerunResponse>(`/api/runs/${runId}/scenarios/${scenarioId}/rerun`, {
       method: "POST",
-      sendKey: true,
+      sendProviderKeys: true,
     }),
 };

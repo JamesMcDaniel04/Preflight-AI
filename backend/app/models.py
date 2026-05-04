@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -13,13 +13,17 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     runs: Mapped[list["SimulationRun"]] = relationship(back_populates="owner")
 
@@ -28,7 +32,7 @@ class SimulationRun(Base):
     __tablename__ = "simulation_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     owner_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     base_prompt: Mapped[str] = mapped_column(Text)
     success_criteria: Mapped[str] = mapped_column(Text)
@@ -90,6 +94,6 @@ class SimulationReport(Base):
     most_dangerous_failure: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     verdict: Mapped[str] = mapped_column(String(16))
     verdict_reason: Mapped[str] = mapped_column(Text)
-    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     run: Mapped[SimulationRun] = relationship(back_populates="report")

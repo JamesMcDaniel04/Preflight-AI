@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from statistics import mean
 
 from .analysis.clustering import cluster_failures
@@ -24,6 +24,10 @@ from .simulation.runner import ScenarioExecution, execute_scenario
 log = logging.getLogger(__name__)
 
 MILESTONES = (25, 50, 75)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def classify_execution(
@@ -73,15 +77,17 @@ def _partial_snapshot(session, run_id: str) -> dict | None:
 
 
 def _maybe_cache_milestone(session, run: SimulationRun) -> None:
-    crossed = max((m for m in MILESTONES if run.progress_pct >= m), default=0)
-    if not crossed or crossed <= run.last_milestone_emitted:
+    if run.progress_pct <= 0:
         return
     cache = dict(run.partial_results_cache or {})
     snapshot = _partial_snapshot(session, run.id)
-    if snapshot:
-        cache[str(crossed)] = snapshot
-        run.partial_results_cache = cache
-    run.last_milestone_emitted = crossed
+    if not snapshot:
+        return
+    for milestone in MILESTONES:
+        if run.last_milestone_emitted < milestone <= run.progress_pct:
+            cache[str(milestone)] = snapshot
+            run.last_milestone_emitted = milestone
+    run.partial_results_cache = cache
 
 
 def _set_progress(session, run_id: str, completed: int, total: int) -> None:
@@ -251,7 +257,7 @@ def _run_pipeline_inner(run_id: str, *, use_stub_generator: bool = False) -> Non
                     most_dangerous_failure=dangerous,
                     verdict=verdict,
                     verdict_reason=verdict_reason,
-                    generated_at=datetime.utcnow(),
+                    generated_at=_utcnow(),
                 )
             )
 

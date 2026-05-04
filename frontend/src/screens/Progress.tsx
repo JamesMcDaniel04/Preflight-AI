@@ -14,54 +14,57 @@ export default function Progress() {
 
     async function poll() {
       try {
-        const s = await api.getStatus(runId);
+        const next = await api.getStatus(runId);
         if (cancelled) return;
-        setStatus(s);
-        if (s.status === "complete") {
+        setStatus(next);
+        if (next.status === "complete") {
           if (interval) clearInterval(interval);
           navigate(`/runs/${runId}/report`);
-        } else if (s.status === "failed") {
+        } else if (next.status === "failed") {
           if (interval) clearInterval(interval);
-          setError(s.error ?? "Run failed.");
+          setError(next.error ?? "Run failed.");
         }
       } catch (err) {
-        if (cancelled) return;
-        setError((err as Error).message);
+        if (!cancelled) setError((err as Error).message);
       }
     }
 
     poll();
     interval = setInterval(poll, 2000);
-
     return () => {
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [runId, navigate]);
+  }, [navigate, runId]);
 
   const pct = status?.progress_pct ?? 0;
   const partial = status?.partial_results;
+  const completeCount =
+    partial?.scenarios_complete ??
+    Math.floor(((status?.scenario_count ?? 0) * (status?.progress_pct ?? 0)) / 100);
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight">Running simulation</h1>
 
       <div>
-        <div className="flex justify-between text-sm text-slate-600 mb-1">
-          <span>{status?.status === "pending" ? "Generating scenarios…" : `${pct}% complete`}</span>
+        <div className="mb-1 flex justify-between text-sm text-slate-600">
+          <span>
+            Simulating {completeCount} / {status?.scenario_count ?? 0} scenarios
+          </span>
           <span className="font-mono">{runId.slice(0, 8)}</span>
         </div>
-        <div className="h-3 rounded-full bg-slate-200 overflow-hidden">
-          <div
-            className="h-full bg-sky-500 transition-all duration-500"
-            style={{ width: `${pct}%` }}
-          />
+        <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+          <div className="h-full bg-sky-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="mt-2 text-xs uppercase tracking-wide text-slate-500">
+          {status?.run_mode === "multi_turn" ? "Multi-turn simulation" : "Single-turn simulation"}
         </div>
       </div>
 
       {partial && (
         <div className="rounded-md border border-slate-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-slate-700 mb-2">So far</h2>
+          <h2 className="mb-2 text-sm font-semibold text-slate-700">So far</h2>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <div className="text-slate-500">Passing</div>
@@ -75,18 +78,18 @@ export default function Progress() {
             </div>
             <div>
               <div className="text-slate-500">Top issue</div>
-              <div className="text-sm font-medium pt-2">
-                {partial.top_emerging_failure ?? "—"}
+              <div className="pt-2 text-sm font-medium">
+                {partial.top_emerging_failure ?? "-"}
               </div>
             </div>
           </div>
-          <div className="text-xs text-slate-500 mt-3">
+          <div className="mt-3 text-xs text-slate-500">
             {partial.scenarios_complete} scenarios classified
           </div>
         </div>
       )}
 
-      {error && <div className="rounded-md bg-red-50 text-red-800 text-sm p-3">{error}</div>}
+      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</div>}
     </div>
   );
 }

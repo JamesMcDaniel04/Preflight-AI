@@ -180,13 +180,15 @@ def _chat_anthropic(
             convo.append({"role": message["role"], "content": str(message["content"])})
 
     def _call():
-        return client.messages.create(
-            model=model,
-            system="\n\n".join(system_parts) if system_parts else None,
-            messages=convo,
-            temperature=temperature,
-            max_tokens=max_tokens or 1024,
-        )
+        kwargs = {
+            "model": model,
+            "messages": convo,
+            "temperature": temperature,
+            "max_tokens": max_tokens or 1024,
+        }
+        if system_parts:
+            kwargs["system"] = "\n\n".join(system_parts)
+        return client.messages.create(**kwargs)
 
     with _semaphore:
         start = time.perf_counter()

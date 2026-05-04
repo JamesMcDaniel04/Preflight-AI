@@ -1,28 +1,41 @@
-/**
- * BYOK key storage. The key lives in localStorage on the user's device and is
- * sent only as a per-request header to our backend, which forwards it to OpenAI
- * without persisting it.
- */
-const STORAGE_KEY = "preflight.openai_key";
+const STORAGE_KEYS = {
+  openai: "preflight.openai_key",
+  anthropic: "preflight.anthropic_key",
+} as const;
 
-export function getOpenAIKey(): string | null {
+export type ProviderKeyName = keyof typeof STORAGE_KEYS;
+
+function getStorageKey(provider: ProviderKeyName): string {
+  return STORAGE_KEYS[provider];
+}
+
+export function getProviderKey(provider: ProviderKeyName): string | null {
   try {
-    return localStorage.getItem(STORAGE_KEY);
+    return localStorage.getItem(getStorageKey(provider));
   } catch {
     return null;
   }
 }
 
-export function setOpenAIKey(key: string | null): void {
+export function setProviderKey(provider: ProviderKeyName, key: string | null): void {
   try {
-    if (key) localStorage.setItem(STORAGE_KEY, key);
-    else localStorage.removeItem(STORAGE_KEY);
+    const storageKey = getStorageKey(provider);
+    if (key) localStorage.setItem(storageKey, key);
+    else localStorage.removeItem(storageKey);
   } catch {
-    /* localStorage disabled — silently no-op */
+    /* localStorage disabled */
   }
 }
 
+export function getOpenAIKey(): string | null {
+  return getProviderKey("openai");
+}
+
+export function getAnthropicKey(): string | null {
+  return getProviderKey("anthropic");
+}
+
 export function maskKey(key: string): string {
-  if (key.length <= 8) return "•".repeat(key.length);
-  return `${key.slice(0, 3)}…${key.slice(-4)}`;
+  if (key.length <= 8) return "*".repeat(key.length);
+  return `${key.slice(0, 3)}...${key.slice(-4)}`;
 }

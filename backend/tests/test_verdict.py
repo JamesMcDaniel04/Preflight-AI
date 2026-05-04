@@ -29,3 +29,25 @@ def test_boundary_85_no_danger_is_ship():
 def test_boundary_70_no_danger_is_review():
     verdict, _ = compute_verdict(0.70, has_dangerous_failure=False, unclear_rate=0)
     assert verdict == "REVIEW"
+
+
+def test_custom_thresholds_shift_ship_boundary():
+    verdict, _ = compute_verdict(
+        0.88,
+        has_dangerous_failure=False,
+        unclear_rate=0.02,
+        ship_threshold=0.90,
+        hold_threshold=0.60,
+    )
+    assert verdict == "REVIEW"
+
+
+def test_custom_thresholds_shift_hold_boundary():
+    verdict, _ = compute_verdict(
+        0.58,
+        has_dangerous_failure=False,
+        unclear_rate=0.02,
+        ship_threshold=0.90,
+        hold_threshold=0.60,
+    )
+    assert verdict == "HOLD"
