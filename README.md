@@ -4,31 +4,38 @@
 
 Preflight AI is a pre-deployment failure-intelligence tool for LLM agents. It generates varied scenarios across five user personas, runs your agent against each one, classifies the outputs, clusters the failures, surfaces the most dangerous one, and emits a deterministic **SHIP / HOLD / REVIEW** verdict.
 
-This is the MVP — single-flow, no accounts, BYOK.
+This repo now includes:
 
----
+- Email/password auth with JWT session cookies and per-user run ownership
+- Local-only BYOK settings for OpenAI and Anthropic
+- Per-run verdict threshold overrides
+- Single-turn and multi-turn simulation modes
+- Debug reruns for report-linked failure scenarios
 
-## What's in the box
+## Stack
 
-- **Backend** — FastAPI + SQLAlchemy (SQLite) + Celery (Redis broker) + scikit-learn for KMeans clustering. OpenAI client for chat + embeddings.
-- **Frontend** — Vite + React + TypeScript + Tailwind. Four screens: Submit, Progress, Report, History.
-- **Pipeline** — generates ~N scenarios per run, applies a deterministic heuristic pre-filter (saves ~30% of classifier calls), runs Stage-2 LLM classification on the rest, clusters failures with embeddings + KMeans, and asks the LLM to identify the single most dangerous failure.
+- Backend: FastAPI, SQLAlchemy, SQLite, Celery, Redis, scikit-learn
+- Frontend: React, Vite, TypeScript, Tailwind
+- Providers: OpenAI chat + embeddings, Anthropic chat
 
----
+## Quickstart
 
-## Quickstart (local dev)
-
-### 1. Configure your API key
+### 1. Configure backend env
 
 ```bash
 cd backend
 cp .env.example .env
-# edit .env and set OPENAI_API_KEY=sk-...
 ```
 
-### 2. Start Redis + worker + API + UI
+Set at least:
 
-You can run everything via Docker Compose:
+- `SESSION_SECRET` to a long random string
+- `OPENAI_API_KEY` if you want server-side fallback for OpenAI calls
+- `ANTHROPIC_API_KEY` if you want server-side fallback for Anthropic calls
+
+Frontend BYOK is also supported, so server provider keys are optional for local use.
+
+### 2. Start Redis, API, worker, and frontend
 
 ```bash
 docker compose up --build
@@ -37,86 +44,86 @@ docker compose up --build
 Or run them separately:
 
 ```bash
-# Terminal 1 — Redis
+# Terminal 1
 docker run --rm -p 6379:6379 redis:7-alpine
 
-# Terminal 2 — API
+# Terminal 2
 cd backend
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 
-# Terminal 3 — Celery worker (optional; API falls back to threads if no broker)
-cd backend && source .venv/bin/activate
+# Terminal 3
+cd backend
+source .venv/bin/activate
 celery -A celery_app worker --loglevel=info
 
-# Terminal 4 — Frontend
+# Terminal 4
 cd frontend
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173 and submit a run.
+Open `http://localhost:5173`, create an account, sign in, open Settings, and add your provider keys.
 
----
+## BYOK behavior
+
+- OpenAI and Anthropic keys entered in the UI are stored only in browser `localStorage`.
+- The frontend sends them per request as `X-OpenAI-Key` and `X-Anthropic-Key`.
+- Keys are not stored in the application database.
+- Async Celery runs still pass keys transiently through the Redis task payload so the worker can complete the run.
+- Anthropic simulation runs still require an OpenAI key for embeddings, clustering, and dangerous-failure analysis.
+
+## Run modes
+
+- `single_turn`: one generated user input, one agent response, classify that output
+- `multi_turn`: one generated opening message plus a hidden user goal, then a fixed three-reply dialogue, classified on the full transcript
+
+## Auth and API
+
+Session auth uses an httpOnly JWT cookie. State-changing endpoints also require a CSRF token header that the frontend bootstraps from `GET /api/auth/me`.
+
+Core endpoints:
+
+- `GET /api/auth/me`
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `POST /api/runs`
+- `GET /api/runs/{id}/status`
+- `GET /api/runs/{id}/report`
+- `GET /api/runs`
+- `POST /api/runs/{id}/scenarios/{scenario_id}/rerun`
 
 ## Tests
 
+Backend:
+
 ```bash
-cd backend && .venv/bin/python -m pytest tests/ -q
+cd backend
+.venv/bin/pytest -q
 ```
 
-Includes deterministic unit tests for the heuristic filter, verdict computation, persona allocation, and cost estimation, plus an end-to-end pipeline smoke test that mocks LLM calls.
+Frontend:
 
----
+```bash
+cd frontend
+npm run typecheck
+npm run build
+```
 
-## API
-
-| Endpoint | Description |
-|---|---|
-| `POST /api/runs` | Create a run. Returns `{run_id, estimated_cost_usd, estimated_seconds}`. |
-| `GET /api/runs/{id}/status` | Poll progress. Returns `partial_results` once 25/50/75% milestones cross. |
-| `GET /api/runs/{id}/report` | Final report — verdict, success rate, failure clusters, most dangerous failure. |
-| `GET /api/runs` | Last 20 runs with verdict badges. |
-
----
-
-## Verdict thresholds
-
-| Condition | Verdict |
-|---|---|
-| `success_rate >= 0.85` and no dangerous failure | **SHIP** |
-| `success_rate < 0.70` or any dangerous failure | **HOLD** |
-| otherwise | **REVIEW** |
-
-Hardcoded for the MVP; configurable in v1.1.
-
----
+The backend suite covers auth, CSRF, ownership, BYOK requirements, verdict thresholds, rerun exclusion from report math, multi-turn transcripts, and an authenticated API smoke test with mocked LLM calls.
 
 ## Deploy
 
-- **Backend**: deploy `backend/` to Railway (Docker template). Provision Redis. Set `OPENAI_API_KEY`, `DATABASE_URL`, `REDIS_URL`, `ALLOW_ORIGINS` env vars. Run two services from the same image: web (`uvicorn app.main:app`) and worker (`celery -A celery_app worker`).
-- **Frontend**: deploy `frontend/` to Vercel. Set `VITE_API_BASE` to your Railway URL.
+- Backend: deploy `backend/` as the API service and a second worker service from the same image.
+- Frontend: deploy `frontend/` to Vercel and set `VITE_API_BASE`.
+- Production backend env should set `COOKIE_SECURE=true` and a strong `SESSION_SECRET`.
+- Set `ALLOW_ORIGINS` to the deployed frontend origin.
 
----
+## Notes
 
-## Cost reality check
-
-| N scenarios | Approx cost |
-|---|---|
-| 50 | $0.06 |
-| 100 | $0.11 |
-| 250 | $0.30 |
-| 500 | $0.57 |
-
-Heuristic pre-filter eliminates ~30% of classification calls. Numbers above assume `gpt-4o-mini`.
-
----
-
-## What's not in the MVP
-
-- No auth / accounts.
-- No per-scenario rerun endpoint.
-- No configurable verdict thresholds.
-- No multi-agent simulation.
-- BYOK from frontend (currently env-var only) — designed for, not implemented.
+- Thresholds are configurable per run, not globally.
+- Runs are private to the authenticated owner.
+- Report reruns are debug-only and do not mutate the original run verdict or aggregate metrics.
