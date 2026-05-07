@@ -115,12 +115,124 @@ npm run build
 
 The backend suite covers auth, CSRF, ownership, BYOK requirements, verdict thresholds, rerun exclusion from report math, multi-turn transcripts, and an authenticated API smoke test with mocked LLM calls.
 
-## Deploy
+## Deploy (Railway + Vercel)
 
-- Backend: deploy `backend/` as the API service and a second worker service from the same image.
-- Frontend: deploy `frontend/` to Vercel and set `VITE_API_BASE`.
-- Production backend env should set `COOKIE_SECURE=true` and a strong `SESSION_SECRET`.
-- Set `ALLOW_ORIGINS` to the deployed frontend origin.
+Target architecture:
+
+- **Vercel** — static frontend (`frontend/`), built by Vite.
+- **Railway** — three services in one project: `api` (FastAPI), `worker` (Celery), and Railway plugins for `redis` and `postgres`.
+
+### A. Railway backend
+
+Prerequisite: install the Railway CLI and authenticate.
+
+```bash
+brew install railway     # or: npm i -g @railway/cli
+railway login
+```
+
+#### 1. Create the project + plugins
+
+```bash
+cd backend
+railway init                  # create a new project, name it "preflight"
+railway add --database postgres
+railway add --database redis
+```
+
+This provisions Redis and Postgres and exposes `DATABASE_URL` and `REDIS_URL` as project variables that any service can reference. (On older Railway CLIs the flag was `--plugin`; current CLI uses `--database`. Run `railway add --help` if either fails.)
+
+#### 2. Create the **api** service
+
+In the Railway dashboard for the project, create a new service from the `backend/` directory. Settings:
+
+| Setting | Value |
+|---|---|
+| Builder | Dockerfile (auto-detected via `backend/railway.json`) |
+| Start command | (leave default — `uvicorn app.main:app --host 0.0.0.0 --port 8000`) |
+| Healthcheck path | `/health` (already in `railway.json`) |
+
+Set these environment variables (use `${{Redis.REDIS_URL}}` / `${{Postgres.DATABASE_URL}}` to reference plugin URLs):
+
+```bash
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+SESSION_SECRET=<openssl rand -hex 32>
+COOKIE_SECURE=true
+ALLOW_ORIGINS=https://<your-vercel-domain>.vercel.app
+DEFAULT_MODEL=gpt-4o-mini
+EMBEDDING_MODEL=text-embedding-3-small
+MAX_CONCURRENT_LLM_CALLS=5
+# Optional server-side fallback keys (frontend BYOK works without these):
+# OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Deploy: `railway up` from `backend/`, or push to a connected GitHub branch.
+
+#### 3. Create the **worker** service
+
+Add a second service from the same `backend/` directory. Identical to the api service except:
+
+| Setting | Value |
+|---|---|
+| Start command | `celery -A celery_app worker --loglevel=info --concurrency=2` |
+| Healthcheck path | (leave blank) |
+
+Use the **same** environment variables as the api service so the worker reads the same Postgres + Redis. (In Railway you can copy variables from one service to another via "Reference Variable.")
+
+#### 4. Verify
+
+```bash
+curl https://<your-api-service>.up.railway.app/health
+# {"ok": true}
+```
+
+### B. Vercel frontend
+
+```bash
+cd frontend
+npm i -g vercel              # if you don't have it
+vercel link                  # links to a Vercel project, picks org
+```
+
+Project settings — auto-detected from `frontend/vercel.json`:
+
+| Setting | Value |
+|---|---|
+| Framework | Vite |
+| Root Directory | `frontend` |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+
+One env var on the project:
+
+```bash
+VITE_API_BASE=https://<your-api-service>.up.railway.app
+```
+
+Deploy:
+
+```bash
+vercel --prod
+```
+
+After the first deploy, take the resulting Vercel domain and set it as `ALLOW_ORIGINS` on the Railway api service (and worker, if you mirrored). Cookies require an exact origin match.
+
+### C. Post-deploy smoke test
+
+1. Open the Vercel URL.
+2. Sign up.
+3. Open Settings → paste your OpenAI key.
+4. Run a small N=10 single-turn run with a known-good prompt.
+5. Confirm verdict appears, history shows the run, JSON download works.
+
+### D. Common gotchas
+
+- **CSRF / cookie failure** — frontend and backend on different origins must use `COOKIE_SECURE=true` (forces `SameSite=None`); browsers reject `SameSite=Lax` cookies on cross-site fetches.
+- **`ALLOW_ORIGINS` missing the Vercel preview domain** — add wildcards or each preview origin explicitly if you use preview deploys.
+- **Worker starts before Postgres is reachable** — Railway sometimes orders services oddly on first deploy; restart the worker after Postgres is up.
+- **`DATABASE_URL` from Railway uses `postgresql://`** — `app/db.py` rewrites this to `postgresql+psycopg://` automatically; no action needed.
 
 ## Notes
 
