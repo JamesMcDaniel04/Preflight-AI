@@ -5,6 +5,8 @@ import logging
 from datetime import UTC, datetime
 from statistics import mean
 
+from .agents.base import reset_agent_auth_header, set_agent_auth_header
+from .agents.factory import build_adapter
 from .analysis.clustering import cluster_failures
 from .analysis.dangerous import detect_most_dangerous
 from .analysis.verdict import compute_verdict
@@ -139,12 +141,18 @@ def run_pipeline(
     use_stub_generator: bool = False,
     openai_key: str | None = None,
     anthropic_key: str | None = None,
+    agent_auth_header: str | None = None,
 ) -> None:
     openai_token = set_openai_key(openai_key) if openai_key else None
     anthropic_token = set_anthropic_key(anthropic_key) if anthropic_key else None
+    agent_token = (
+        set_agent_auth_header(agent_auth_header) if agent_auth_header else None
+    )
     try:
         _run_pipeline_inner(run_id, use_stub_generator=use_stub_generator)
     finally:
+        if agent_token is not None:
+            reset_agent_auth_header(agent_token)
         if anthropic_token is not None:
             reset_anthropic_key(anthropic_token)
         if openai_token is not None:
@@ -164,10 +172,20 @@ def _run_pipeline_inner(run_id: str, *, use_stub_generator: bool = False) -> Non
         model = run.model
         run_mode = run.run_mode
         test_profile = run.test_profile or "general"
+        connection_type = run.connection_type or "prompt"
+        endpoint_url = run.endpoint_url
+        endpoint_format = run.endpoint_format
         ship_threshold = run.ship_threshold
         hold_threshold = run.hold_threshold
 
     try:
+        adapter = build_adapter(
+            connection_type=connection_type,
+            model=model,
+            endpoint_url=endpoint_url,
+            endpoint_format=endpoint_format,
+        )
+        log.info("run %s using %s", run_id, adapter.description)
         generated = generate_scenarios(
             base_prompt,
             target_n,
@@ -195,6 +213,7 @@ def _run_pipeline_inner(run_id: str, *, use_stub_generator: bool = False) -> Non
                     run_mode=run_mode,
                     persona_seed=scenario.persona_seed,
                     hidden_goal=scenario.hidden_goal,
+                    adapter=adapter,
                 )
                 if execution.error:
                     flag = "empty_response"

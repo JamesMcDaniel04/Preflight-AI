@@ -13,6 +13,9 @@ class CreateRunRequest(BaseModel):
     model: str = "gpt-4o-mini"
     run_mode: Literal["single_turn", "multi_turn"] = "single_turn"
     test_profile: str = "general"
+    connection_type: Literal["prompt", "http_endpoint"] = "prompt"
+    endpoint_url: str | None = Field(default=None, max_length=2000)
+    endpoint_format: Literal["simple", "openai_compat"] | None = None
     ship_threshold: float = Field(default=0.85, ge=0.50, le=1.00)
     hold_threshold: float = Field(default=0.70, ge=0.0, le=0.99)
 
@@ -21,6 +24,28 @@ class CreateRunRequest(BaseModel):
         if self.ship_threshold <= self.hold_threshold:
             raise ValueError("ship_threshold must be greater than hold_threshold")
         return self
+
+    @model_validator(mode="after")
+    def validate_connection(self) -> "CreateRunRequest":
+        if self.connection_type == "http_endpoint":
+            if not self.endpoint_url:
+                raise ValueError("endpoint_url is required when connection_type='http_endpoint'")
+            if not self.endpoint_format:
+                raise ValueError("endpoint_format is required when connection_type='http_endpoint'")
+        return self
+
+
+class TestConnectionRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    format: Literal["simple", "openai_compat"] = "openai_compat"
+    model: str | None = "user-agent"
+
+
+class TestConnectionResponse(BaseModel):
+    ok: bool
+    latency_ms: int | None = None
+    sample_response: str | None = None
+    error: str | None = None
 
 
 class ProfileSummary(BaseModel):
@@ -89,6 +114,9 @@ class ReportResponse(BaseModel):
     model: str
     run_mode: str
     test_profile: str
+    connection_type: str = "prompt"
+    endpoint_url: str | None = None
+    endpoint_format: str | None = None
     ship_threshold: float
     hold_threshold: float
     success_rate: float
@@ -110,6 +138,8 @@ class RunSummary(BaseModel):
     model: str
     run_mode: str
     test_profile: str = "general"
+    connection_type: str = "prompt"
+    endpoint_url: str | None = None
     status: str
     progress_pct: int
     success_rate: float | None = None

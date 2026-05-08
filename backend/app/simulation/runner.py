@@ -1,8 +1,19 @@
-"""Run single-turn or multi-turn scenarios against the user's agent prompt."""
+"""Run single-turn or multi-turn scenarios against the user's agent.
+
+The agent is abstracted behind an `AgentAdapter` (see `app.agents`). The runner
+itself doesn't know whether the agent is a fresh OpenAI call (prompt mode) or
+an HTTP POST to the user's deployed endpoint — it just calls `adapter.send`.
+
+User-simulator follow-up messages always go through `chat_complete` because
+that's *our* OpenAI call (we're synthesizing the test user's behavior), not
+the user's agent.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..agents.base import AgentAdapter
+from ..agents.prompt import PromptAdapter
 from ..llm.clients import chat_complete
 
 
@@ -51,6 +62,22 @@ def _generate_follow_up(
     )
 
 
+def _build_messages_for_agent(
+    *,
+    adapter: AgentAdapter,
+    base_prompt: str,
+    transcript: list[dict],
+) -> list[dict]:
+    """Compose the messages list to send to the adapter.
+
+    Prompt-only adapters need our system prompt prepended; HTTP adapters do not
+    (the user's deployed agent already has its own system context).
+    """
+    if adapter.prepends_system:
+        return [{"role": "system", "content": base_prompt}, *transcript]
+    return list(transcript)
+
+
 def execute_scenario(
     base_prompt: str,
     scenario_input: str,
@@ -59,19 +86,24 @@ def execute_scenario(
     run_mode: str = "single_turn",
     persona_seed: str = "normal_user",
     hidden_goal: str | None = None,
+    adapter: AgentAdapter | None = None,
 ) -> ScenarioExecution:
+    """Run a single test scenario through the user's agent and capture output.
+
+    `adapter` defaults to a PromptAdapter so existing call sites that don't
+    know about adapters yet keep working with prompt-only behavior.
+    """
+    if adapter is None:
+        adapter = PromptAdapter(model=model)
+
+    transcript: list[dict] = [{"role": "user", "content": scenario_input}]
+
     if run_mode != "multi_turn":
-        messages = [
-            {"role": "system", "content": base_prompt},
-            {"role": "user", "content": scenario_input},
-        ]
         try:
-            output, latency_ms = chat_complete(
-                messages,
-                model=model,
-                temperature=0.7,
-                max_tokens=600,
+            messages = _build_messages_for_agent(
+                adapter=adapter, base_prompt=base_prompt, transcript=transcript
             )
+            output, latency_ms = adapter.send(messages, max_tokens=600)
             return ScenarioExecution(
                 output=output,
                 latency_ms=latency_ms,
@@ -86,37 +118,28 @@ def execute_scenario(
                 agent_outputs=[],
             )
 
-    transcript = [{"role": "user", "content": scenario_input}]
-    messages = [{"role": "system", "content": base_prompt}, *transcript]
     total_latency = 0
     agent_outputs: list[str] = []
-
     try:
         for turn in range(3):
-            agent_output, latency_ms = chat_complete(
-                messages,
-                model=model,
-                temperature=0.7,
-                max_tokens=600,
+            messages = _build_messages_for_agent(
+                adapter=adapter, base_prompt=base_prompt, transcript=transcript
             )
+            agent_output, latency_ms = adapter.send(messages, max_tokens=600)
             total_latency += latency_ms
             agent_outputs.append(agent_output)
-            assistant_message = {"role": "assistant", "content": agent_output}
-            transcript.append(assistant_message)
-            messages.append(assistant_message)
+            transcript.append({"role": "assistant", "content": agent_output})
             if turn == 2:
                 break
-            follow_up, latency_ms = _generate_follow_up(
+            follow_up, follow_latency = _generate_follow_up(
                 base_prompt=base_prompt,
                 persona_seed=persona_seed,
                 hidden_goal=hidden_goal or "Get the task completed accurately.",
                 transcript=transcript,
                 model=model,
             )
-            total_latency += latency_ms
-            user_message = {"role": "user", "content": follow_up}
-            transcript.append(user_message)
-            messages.append(user_message)
+            total_latency += follow_latency
+            transcript.append({"role": "user", "content": follow_up})
     except Exception as exc:
         return ScenarioExecution(
             output=_render_transcript(transcript),

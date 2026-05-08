@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
+from ..agents.base import reset_agent_auth_header, set_agent_auth_header
+from ..agents.factory import build_adapter
 from ..auth import get_current_user, verify_csrf
 from ..cost import estimate
 from ..db import get_db
@@ -20,13 +22,11 @@ from ..schemas import (
     DangerousFailure,
     FailureCluster,
     PartialResults,
-    ProfileSummary,
     ReportResponse,
     RerunResponse,
     RunStatus,
     RunSummary,
 )
-from ..simulation.profiles import list_profiles
 from ..simulation.runner import execute_scenario
 from ..tasks import classify_execution, run_pipeline
 
@@ -50,11 +50,14 @@ def _start_pipeline(
     *,
     openai_key: str | None,
     anthropic_key: str | None,
+    agent_auth_header: str | None,
 ) -> None:
     try:
         from celery_app import run_pipeline_task
 
-        run_pipeline_task.apply_async(args=[run_id, openai_key, anthropic_key])
+        run_pipeline_task.apply_async(
+            args=[run_id, openai_key, anthropic_key, agent_auth_header]
+        )
         return
     except Exception:
         import threading
@@ -62,7 +65,11 @@ def _start_pipeline(
         threading.Thread(
             target=run_pipeline,
             args=(run_id,),
-            kwargs={"openai_key": openai_key, "anthropic_key": anthropic_key},
+            kwargs={
+                "openai_key": openai_key,
+                "anthropic_key": anthropic_key,
+                "agent_auth_header": agent_auth_header,
+            },
             daemon=True,
         ).start()
 
@@ -87,7 +94,11 @@ def create_run(
     _csrf: str = Depends(verify_csrf),
     x_openai_key: str | None = Header(default=None, alias="X-OpenAI-Key"),
     x_anthropic_key: str | None = Header(default=None, alias="X-Anthropic-Key"),
+    x_agent_auth_header: str | None = Header(default=None, alias="X-Agent-Auth-Header"),
 ) -> CreateRunResponse:
+    # When the user picks http_endpoint, our internal model-access check is for
+    # scenario-gen + classifier + clustering only — those still hit OpenAI.
+    # The agent itself is the user's deployed URL.
     try:
         validate_model_access(
             req.model,
@@ -97,6 +108,13 @@ def create_run(
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if req.connection_type == "http_endpoint" and req.endpoint_url:
+        from ..agents.safety import UnsafeEndpointError, assert_endpoint_safe
+        try:
+            assert_endpoint_safe(req.endpoint_url)
+        except UnsafeEndpointError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     run = SimulationRun(
         owner_user_id=user.id,
         base_prompt=req.base_prompt,
@@ -105,6 +123,9 @@ def create_run(
         model=req.model,
         run_mode=req.run_mode,
         test_profile=req.test_profile or "general",
+        connection_type=req.connection_type,
+        endpoint_url=req.endpoint_url,
+        endpoint_format=req.endpoint_format,
         ship_threshold=req.ship_threshold,
         hold_threshold=req.hold_threshold,
         status="pending",
@@ -120,6 +141,7 @@ def create_run(
         run.id,
         openai_key=x_openai_key,
         anthropic_key=x_anthropic_key,
+        agent_auth_header=x_agent_auth_header,
     )
     return CreateRunResponse(
         run_id=run.id,
@@ -163,6 +185,9 @@ def get_report(
         model=run.model,
         run_mode=run.run_mode,
         test_profile=run.test_profile,
+        connection_type=run.connection_type or "prompt",
+        endpoint_url=run.endpoint_url,
+        endpoint_format=run.endpoint_format,
         ship_threshold=run.ship_threshold,
         hold_threshold=run.hold_threshold,
         success_rate=report.success_rate,
@@ -190,6 +215,7 @@ def rerun_scenario(
     _csrf: str = Depends(verify_csrf),
     x_openai_key: str | None = Header(default=None, alias="X-OpenAI-Key"),
     x_anthropic_key: str | None = Header(default=None, alias="X-Anthropic-Key"),
+    x_agent_auth_header: str | None = Header(default=None, alias="X-Agent-Auth-Header"),
 ) -> RerunResponse:
     run = _owned_run_or_404(db, run_id, user.id)
     try:
@@ -228,7 +254,16 @@ def rerun_scenario(
 
     openai_token = set_openai_key(x_openai_key) if x_openai_key else None
     anthropic_token = set_anthropic_key(x_anthropic_key) if x_anthropic_key else None
+    agent_token = (
+        set_agent_auth_header(x_agent_auth_header) if x_agent_auth_header else None
+    )
     try:
+        adapter = build_adapter(
+            connection_type=run.connection_type or "prompt",
+            model=run.model,
+            endpoint_url=run.endpoint_url,
+            endpoint_format=run.endpoint_format,
+        )
         execution = execute_scenario(
             run.base_prompt,
             original.input,
@@ -236,6 +271,7 @@ def rerun_scenario(
             run_mode=run.run_mode,
             persona_seed=original.persona_seed,
             hidden_goal=original.hidden_goal,
+            adapter=adapter,
         )
         if execution.error:
             flag = "empty_response"
@@ -249,6 +285,8 @@ def rerun_scenario(
                 test_profile=run.test_profile or "general",
             )
     finally:
+        if agent_token is not None:
+            reset_agent_auth_header(agent_token)
         if anthropic_token is not None:
             reset_anthropic_key(anthropic_token)
         if openai_token is not None:
@@ -299,6 +337,8 @@ def list_runs(
                 model=run.model,
                 run_mode=run.run_mode,
                 test_profile=run.test_profile or "general",
+                connection_type=run.connection_type or "prompt",
+                endpoint_url=run.endpoint_url,
                 status=run.status,
                 progress_pct=run.progress_pct,
                 success_rate=report.success_rate if report else None,
