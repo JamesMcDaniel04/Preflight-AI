@@ -51,13 +51,13 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
   }, []);
 
   const provider = providerForModel(model);
-  const requiresAnthropic = provider === "anthropic";
-  const hasRequiredKeys = requiresAnthropic
-    ? Boolean(openaiKey && anthropicKey)
-    : Boolean(openaiKey);
-  const missingLabel = requiresAnthropic
-    ? "Add both OpenAI and Anthropic keys to continue."
-    : "Add an OpenAI key to continue.";
+  // Operator-key model: backend env vars are the source of truth. Local BYOK
+  // keys are an optional override. Surface them only as informational.
+  const usingOpenAIOverride = Boolean(openaiKey);
+  const usingAnthropicOverride = Boolean(anthropicKey);
+  const overrideActive =
+    (provider === "openai" && usingOpenAIOverride) ||
+    (provider === "anthropic" && usingAnthropicOverride);
   const [estCost, estSecs] = useMemo(() => COST_TABLE[n], [n]);
 
   async function onSubmit(event: FormEvent) {
@@ -96,15 +96,18 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
         </p>
       </div>
 
-      {!hasRequiredKeys && (
-        <div className="flex items-center justify-between rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
-          <span className="text-amber-900">{missingLabel}</span>
+      {overrideActive && (
+        <div className="flex items-center justify-between rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm">
+          <span className="text-sky-900">
+            Using your own {provider === "anthropic" ? "Anthropic" : "OpenAI"} key from this
+            browser. Clear it in Settings to fall back to the server key.
+          </span>
           <button
             type="button"
             onClick={onOpenSettings}
-            className="rounded-md bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-700"
+            className="rounded-md border border-sky-300 px-3 py-1 text-xs text-sky-800 hover:bg-sky-100"
           >
-            Add keys
+            Settings
           </button>
         </div>
       )}
@@ -229,20 +232,16 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
         Estimated cost: <span className="font-medium">${estCost.toFixed(2)}</span>
         <span className="mx-2 text-slate-400">|</span>
         Estimated time: <span className="font-medium">{Math.round(estSecs / 60)} min</span>
-        <span className="ml-2 text-xs text-slate-500">
-          BYOK is local-only in the UI; async runs still pass keys transiently through Redis so the
-          worker can complete.
-        </span>
       </div>
 
       {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</div>}
 
       <button
         type="submit"
-        disabled={submitting || !hasRequiredKeys}
+        disabled={submitting}
         className="rounded-md bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-700 disabled:bg-slate-300"
       >
-        {submitting ? "Starting..." : hasRequiredKeys ? "Run Preflight" : missingLabel}
+        {submitting ? "Starting..." : "Run Preflight"}
       </button>
     </form>
   );

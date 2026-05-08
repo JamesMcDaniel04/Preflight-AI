@@ -59,9 +59,11 @@ export default function SettingsPanel({
         </div>
         <div className="space-y-5 px-6 py-5">
           <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-            Provider keys stay in this browser only. Async runs pass them through the backend and
-            into the Celery task payload transiently so the worker can finish the run. They are not
-            stored in the app database.
+            Provider keys are <strong>optional overrides</strong>. By default Preflight uses the
+            operator's server-side keys for every run. Setting a key here makes this browser send
+            it as a per-request header, billing your account instead. Keys stay in this browser
+            only and are passed transiently through the Celery task payload so the worker can
+            finish the run; they are not persisted in the app database.
           </div>
           <KeySection
             title="OpenAI API key"

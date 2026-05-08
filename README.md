@@ -223,9 +223,11 @@ After the first deploy, take the resulting Vercel domain and set it as `ALLOW_OR
 
 1. Open the Vercel URL.
 2. Sign up.
-3. Open Settings → paste your OpenAI key.
-4. Run a small N=10 single-turn run with a known-good prompt.
-5. Confirm verdict appears, history shows the run, JSON download works.
+3. Run a small N=10 single-turn run with a known-good prompt — uses the operator's server-side keys by default.
+4. Confirm verdict appears, history shows the run, JSON download works.
+
+> Settings → API keys is an **optional per-browser override**. Useful if you want to bill your own
+> OpenAI / Anthropic account instead of the operator's. Leave empty to use the server keys.
 
 ### D. Common gotchas
 
@@ -239,3 +241,18 @@ After the first deploy, take the resulting Vercel domain and set it as `ALLOW_OR
 - Thresholds are configurable per run, not globally.
 - Runs are private to the authenticated owner.
 - Report reruns are debug-only and do not mutate the original run verdict or aggregate metrics.
+
+## Pre-public-launch backlog (operator-key model)
+
+Because the operator's keys back every run by default, before opening the app to public traffic
+you'll want:
+
+- **Per-user run quota** — daily / monthly cap on `scenario_count` summed per user.
+- **Hard cap on N per run** — already 500 by `Field(le=500)`, but consider 100 in prod.
+- **Rate limiting** — N runs/min per user; reject burst with 429.
+- **Cost monitoring + alerting** — log token usage per run; alert on daily spend over threshold.
+- **Email verification on signup** — currently any email string passes; add a confirmation flow
+  before counting a user as eligible to run.
+- **Queue-depth backpressure** — if Celery has > X pending tasks, return 503 on `POST /api/runs`.
+
+None of these are required to start internal testing on a single account.
