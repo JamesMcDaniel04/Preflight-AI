@@ -54,7 +54,7 @@ def test_duplicate_email_and_run_ownership(client, second_client, monkeypatch):
     monkeypatch.setattr(
         runs_route,
         "_start_pipeline",
-        lambda run_id, *, openai_key, anthropic_key: None,
+        lambda run_id, *, openai_key, anthropic_key, agent_auth_header=None: None,
     )
     create = client.post(
         "/api/runs",
@@ -87,7 +87,7 @@ def test_byok_requirements_and_threshold_validation(client, monkeypatch):
     monkeypatch.setattr(
         runs_route,
         "_start_pipeline",
-        lambda run_id, *, openai_key, anthropic_key: None,
+        lambda run_id, *, openai_key, anthropic_key, agent_auth_header=None: None,
     )
 
     missing_openai = client.post(

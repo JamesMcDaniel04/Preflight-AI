@@ -12,6 +12,9 @@ export type AuthResponse = {
   user: User | null;
 };
 
+export type ConnectionType = "prompt" | "http_endpoint";
+export type EndpointFormat = "simple" | "openai_compat";
+
 export type CreateRunRequest = {
   base_prompt: string;
   success_criteria: string;
@@ -19,8 +22,24 @@ export type CreateRunRequest = {
   model: string;
   run_mode: "single_turn" | "multi_turn";
   test_profile: string;
+  connection_type: ConnectionType;
+  endpoint_url?: string | null;
+  endpoint_format?: EndpointFormat | null;
   ship_threshold: number;
   hold_threshold: number;
+};
+
+export type TestConnectionRequest = {
+  url: string;
+  format: EndpointFormat;
+  model?: string | null;
+};
+
+export type TestConnectionResponse = {
+  ok: boolean;
+  latency_ms: number | null;
+  sample_response: string | null;
+  error: string | null;
 };
 
 export type TestProfile = {
@@ -88,6 +107,9 @@ export type ReportResponse = {
   model: string;
   run_mode: "single_turn" | "multi_turn";
   test_profile: string;
+  connection_type: ConnectionType;
+  endpoint_url: string | null;
+  endpoint_format: EndpointFormat | null;
   ship_threshold: number;
   hold_threshold: number;
   success_rate: number;
@@ -109,6 +131,8 @@ export type RunSummary = {
   model: string;
   run_mode: "single_turn" | "multi_turn";
   test_profile: string;
+  connection_type: ConnectionType;
+  endpoint_url: string | null;
   status: RunStatus["status"];
   progress_pct: number;
   success_rate: number | null;

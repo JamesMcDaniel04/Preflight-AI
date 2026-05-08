@@ -35,8 +35,14 @@ def run_pipeline_task(
     run_id: str,
     openai_key: str | None = None,
     anthropic_key: str | None = None,
+    agent_auth_header: str | None = None,
 ) -> str:
     from app.tasks import run_pipeline
 
-    run_pipeline(run_id, openai_key=openai_key, anthropic_key=anthropic_key)
+    run_pipeline(
+        run_id,
+        openai_key=openai_key,
+        anthropic_key=anthropic_key,
+        agent_auth_header=agent_auth_header,
+    )
     return run_id

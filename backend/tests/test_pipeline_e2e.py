@@ -25,14 +25,17 @@ def test_api_smoke_run_report_and_rerun(client, temp_db, monkeypatch):
     monkeypatch.setattr(clustering_mod, "embed", fake_embed)
     monkeypatch.setattr(dangerous_mod, "chat_complete", fake_chat_complete)
     monkeypatch.setattr(runner_mod, "chat_complete", fake_chat_complete)
+    from app.agents import prompt as prompt_adapter_mod
+    monkeypatch.setattr(prompt_adapter_mod, "chat_complete", fake_chat_complete)
     monkeypatch.setattr(
         runs_route,
         "_start_pipeline",
-        lambda run_id, *, openai_key, anthropic_key: tasks.run_pipeline(
+        lambda run_id, *, openai_key, anthropic_key, agent_auth_header=None: tasks.run_pipeline(
             run_id,
             use_stub_generator=True,
             openai_key=openai_key,
             anthropic_key=anthropic_key,
+            agent_auth_header=agent_auth_header,
         ),
     )
 
@@ -106,6 +109,8 @@ def test_multi_turn_pipeline_persists_transcript_and_milestones(temp_db, monkeyp
     monkeypatch.setattr(clustering_mod, "embed", fake_embed)
     monkeypatch.setattr(dangerous_mod, "chat_complete", fake_chat_complete)
     monkeypatch.setattr(runner_mod, "chat_complete", fake_chat_complete)
+    from app.agents import prompt as prompt_adapter_mod
+    monkeypatch.setattr(prompt_adapter_mod, "chat_complete", fake_chat_complete)
 
     session = temp_db()
     session.add(User(email="multi@example.com", password_hash="hashed"))
