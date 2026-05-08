@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     csrf_cookie_name: str = "preflight_csrf"
     session_ttl_seconds: int = 60 * 60 * 24 * 7
     cookie_secure: bool = False
+    # Permits HTTP agent adapters to call private/loopback addresses.
+    # Off by default — only flip on if the operator runs their agent on the
+    # same network as the API server (e.g., self-hosted setups).
+    agent_endpoint_allow_private: bool = False
 
     @property
     def cors_origins(self) -> list[str]:
