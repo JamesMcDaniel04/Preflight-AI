@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, TestProfile } from "../api";
 import { getAnthropicKey, getOpenAIKey } from "../keyStore";
 
 const N_OPTIONS = [50, 100, 250, 500] as const;
@@ -36,6 +36,12 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
   const [error, setError] = useState<string | null>(null);
   const [openaiKey, setOpenaiKey] = useState<string | null>(() => getOpenAIKey());
   const [anthropicKey, setAnthropicKey] = useState<string | null>(() => getAnthropicKey());
+  const [profiles, setProfiles] = useState<TestProfile[] | null>(null);
+  const [profileId, setProfileId] = useState<string>("general");
+  // Track which fields the user has personally edited so we don't clobber
+  // their text when they switch profiles.
+  const [promptDirty, setPromptDirty] = useState(false);
+  const [criteriaDirty, setCriteriaDirty] = useState(false);
 
   useEffect(() => {
     function refresh() {
@@ -49,6 +55,25 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
       clearInterval(id);
     };
   }, []);
+
+  // Load profile catalog from the backend on mount so the dropdown is always
+  // in sync with what the server actually supports.
+  useEffect(() => {
+    api
+      .listProfiles()
+      .then((items) => setProfiles(items))
+      .catch(() => setProfiles([]));
+  }, []);
+
+  // When the user picks a profile, prefill the prompt + criteria with that
+  // profile's defaults — but only if they haven't edited those fields yet.
+  useEffect(() => {
+    if (!profiles) return;
+    const chosen = profiles.find((p) => p.id === profileId);
+    if (!chosen) return;
+    if (!promptDirty) setBasePrompt(chosen.default_base_prompt);
+    if (!criteriaDirty) setCriteria(chosen.default_success_criteria);
+  }, [profileId, profiles, promptDirty, criteriaDirty]);
 
   const provider = providerForModel(model);
   // Operator-key model: backend env vars are the source of truth. Local BYOK
@@ -76,6 +101,7 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
         scenario_count: n,
         model,
         run_mode: runMode,
+        test_profile: profileId,
         ship_threshold: shipThreshold,
         hold_threshold: holdThreshold,
       });
@@ -113,17 +139,73 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
       )}
 
       <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700">Base prompt</label>
+        <label className="mb-1 block text-sm font-medium text-slate-700">Test profile</label>
+        <p className="mb-2 text-xs text-slate-500">
+          Pick what you want to test. Each profile biases scenario generation toward a specific risk
+          surface and prefills a starter prompt + success criteria.
+        </p>
+        {profiles === null ? (
+          <div className="text-sm text-slate-500">Loading profiles…</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+            {profiles.map((profile) => {
+              const active = profile.id === profileId;
+              return (
+                <button
+                  type="button"
+                  key={profile.id}
+                  onClick={() => setProfileId(profile.id)}
+                  className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                    active
+                      ? "border-sky-600 bg-sky-50 ring-1 ring-sky-300"
+                      : "border-slate-300 bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-slate-900">{profile.label}</span>
+                    {profile.has_scoring_rules && (
+                      <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                        regex
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">{profile.description}</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700">
+          Base prompt
+          <span className="ml-2 font-normal text-slate-400">
+            Prefilled by profile — edit if you have your own agent.
+          </span>
+        </label>
         <textarea
           required
           value={basePrompt}
-          onChange={(event) => setBasePrompt(event.target.value)}
+          onChange={(event) => {
+            setBasePrompt(event.target.value);
+            setPromptDirty(true);
+          }}
           rows={6}
           minLength={10}
           maxLength={4000}
           className="w-full rounded-md border border-slate-300 p-3 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
           placeholder="You are an invoice processing assistant. Given an invoice, extract..."
         />
+        {promptDirty && (
+          <button
+            type="button"
+            onClick={() => setPromptDirty(false)}
+            className="mt-1 text-xs text-sky-600 hover:underline"
+          >
+            Reset to profile default
+          </button>
+        )}
       </div>
 
       <div>
@@ -136,7 +218,10 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
         <textarea
           required
           value={criteria}
-          onChange={(event) => setCriteria(event.target.value)}
+          onChange={(event) => {
+            setCriteria(event.target.value);
+            setCriteriaDirty(true);
+          }}
           rows={3}
           minLength={5}
           maxLength={2000}

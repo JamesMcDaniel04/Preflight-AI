@@ -18,54 +18,37 @@ This repo now includes:
 - Frontend: React, Vite, TypeScript, Tailwind
 - Providers: OpenAI chat + embeddings, Anthropic chat
 
-## Quickstart
+## Quickstart (local dev — one command)
 
-### 1. Configure backend env
+Local dev runs entirely in-process: no Redis, no Celery worker. Background simulations run on a daemon thread inside uvicorn. (Production keeps Celery + Redis for scale; see Deploy.)
+
+### One-time setup
 
 ```bash
+git clone <repo> Preflight-AI && cd Preflight-AI
+npm install                 # installs `concurrently` for the dev launcher
+npm run setup               # creates backend venv + installs Python + Node deps
+
 cd backend
 cp .env.example .env
+# edit .env — set OPENAI_API_KEY (and optionally ANTHROPIC_API_KEY)
+# SESSION_SECRET defaults to a placeholder; set to `openssl rand -hex 32` for anything real
 ```
 
-Set at least:
-
-- `SESSION_SECRET` to a long random string
-- `OPENAI_API_KEY` if you want server-side fallback for OpenAI calls
-- `ANTHROPIC_API_KEY` if you want server-side fallback for Anthropic calls
-
-Frontend BYOK is also supported, so server provider keys are optional for local use.
-
-### 2. Start Redis, API, worker, and frontend
+### Daily dev — one command
 
 ```bash
-docker compose up --build
+npm run dev    # starts backend + frontend in one terminal, color-prefixed logs
 ```
 
-Or run them separately:
+That brings up:
 
-```bash
-# Terminal 1
-docker run --rm -p 6379:6379 redis:7-alpine
+- **Backend** at <http://localhost:8000> (uvicorn with `--reload`)
+- **Frontend** at <http://localhost:5173> (Vite)
 
-# Terminal 2
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+`Ctrl+C` once kills both.
 
-# Terminal 3
-cd backend
-source .venv/bin/activate
-celery -A celery_app worker --loglevel=info
-
-# Terminal 4
-cd frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173`, create an account, sign in, open Settings, and add your provider keys.
+Open <http://localhost:5173>, create an account, and start a run.
 
 ## BYOK behavior
 

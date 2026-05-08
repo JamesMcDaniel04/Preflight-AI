@@ -18,6 +18,7 @@ from .llm.clients import (
 )
 from .models import Scenario, SimulationReport, SimulationRun
 from .simulation.generator import GeneratedScenario, generate_scenarios
+from .simulation.profiles import apply_scoring_rules, get_profile
 from .simulation.runner import ScenarioExecution, execute_scenario
 
 
@@ -35,8 +36,22 @@ def classify_execution(
     success_criteria: str,
     *,
     model: str | None = None,
+    test_profile: str = "general",
 ) -> tuple[str | None, str, str | None]:
+    """Returns (heuristic_flag, classified_as, reason).
+
+    Order of precedence:
+      1. Profile-specific deterministic scoring rules (e.g. PII regex). These
+         short-circuit with a `failure` and the rule's fail_reason — cheap,
+         fast, and impossible to gaslight.
+      2. The shared heuristic_flag (empty / refusal / hallucination_signal).
+      3. The LLM classifier against the user's success_criteria.
+    """
+    profile = get_profile(test_profile)
     for agent_output in execution.agent_outputs:
+        failed, fail_reason = apply_scoring_rules(agent_output, profile)
+        if failed:
+            return "scoring_rule", "failure", fail_reason
         flag = heuristic_flag(agent_output)
         if flag is not None:
             return flag, "failure", flag
@@ -148,6 +163,7 @@ def _run_pipeline_inner(run_id: str, *, use_stub_generator: bool = False) -> Non
         target_n = run.scenario_count
         model = run.model
         run_mode = run.run_mode
+        test_profile = run.test_profile or "general"
         ship_threshold = run.ship_threshold
         hold_threshold = run.hold_threshold
 
@@ -157,6 +173,7 @@ def _run_pipeline_inner(run_id: str, *, use_stub_generator: bool = False) -> Non
             target_n,
             model=model,
             run_mode=run_mode,
+            test_profile=test_profile,
             use_stub=use_stub_generator,
         )
         if not generated:
@@ -188,6 +205,7 @@ def _run_pipeline_inner(run_id: str, *, use_stub_generator: bool = False) -> Non
                         execution,
                         success_criteria,
                         model=model,
+                        test_profile=test_profile,
                     )
 
                 scenario.output = execution.output

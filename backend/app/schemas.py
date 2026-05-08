@@ -12,6 +12,7 @@ class CreateRunRequest(BaseModel):
     scenario_count: int = Field(default=100, ge=5, le=500)
     model: str = "gpt-4o-mini"
     run_mode: Literal["single_turn", "multi_turn"] = "single_turn"
+    test_profile: str = "general"
     ship_threshold: float = Field(default=0.85, ge=0.50, le=1.00)
     hold_threshold: float = Field(default=0.70, ge=0.0, le=0.99)
 
@@ -20,6 +21,16 @@ class CreateRunRequest(BaseModel):
         if self.ship_threshold <= self.hold_threshold:
             raise ValueError("ship_threshold must be greater than hold_threshold")
         return self
+
+
+class ProfileSummary(BaseModel):
+    """Public-facing description of a test profile, used by the frontend dropdown."""
+    id: str
+    label: str
+    description: str
+    default_base_prompt: str
+    default_success_criteria: str
+    has_scoring_rules: bool
 
 
 class CreateRunResponse(BaseModel):
@@ -77,6 +88,7 @@ class ReportResponse(BaseModel):
     success_criteria: str
     model: str
     run_mode: str
+    test_profile: str
     ship_threshold: float
     hold_threshold: float
     success_rate: float
@@ -97,6 +109,7 @@ class RunSummary(BaseModel):
     scenario_count: int
     model: str
     run_mode: str
+    test_profile: str = "general"
     status: str
     progress_pct: int
     success_rate: float | None = None

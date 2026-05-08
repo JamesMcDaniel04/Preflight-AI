@@ -36,6 +36,8 @@ export default function Report() {
       <VerdictBanner verdict={report.verdict} reason={report.verdict_reason} />
 
       <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+        Profile: <span className="font-medium capitalize">{report.test_profile.replace(/_/g, " ")}</span>
+        <span className="mx-2 text-slate-400">|</span>
         Mode: <span className="font-medium">{report.run_mode === "multi_turn" ? "Multi turn" : "Single turn"}</span>
         <span className="mx-2 text-slate-400">|</span>
         Ship threshold: <span className="font-medium">{Math.round(report.ship_threshold * 100)}%</span>

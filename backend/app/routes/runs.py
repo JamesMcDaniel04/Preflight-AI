@@ -20,11 +20,13 @@ from ..schemas import (
     DangerousFailure,
     FailureCluster,
     PartialResults,
+    ProfileSummary,
     ReportResponse,
     RerunResponse,
     RunStatus,
     RunSummary,
 )
+from ..simulation.profiles import list_profiles
 from ..simulation.runner import execute_scenario
 from ..tasks import classify_execution, run_pipeline
 
@@ -102,6 +104,7 @@ def create_run(
         scenario_count=req.scenario_count,
         model=req.model,
         run_mode=req.run_mode,
+        test_profile=req.test_profile or "general",
         ship_threshold=req.ship_threshold,
         hold_threshold=req.hold_threshold,
         status="pending",
@@ -159,6 +162,7 @@ def get_report(
         success_criteria=run.success_criteria,
         model=run.model,
         run_mode=run.run_mode,
+        test_profile=run.test_profile,
         ship_threshold=run.ship_threshold,
         hold_threshold=run.hold_threshold,
         success_rate=report.success_rate,
@@ -242,6 +246,7 @@ def rerun_scenario(
                 execution,
                 run.success_criteria,
                 model=run.model,
+                test_profile=run.test_profile or "general",
             )
     finally:
         if anthropic_token is not None:
@@ -293,6 +298,7 @@ def list_runs(
                 scenario_count=run.scenario_count,
                 model=run.model,
                 run_mode=run.run_mode,
+                test_profile=run.test_profile or "general",
                 status=run.status,
                 progress_pct=run.progress_pct,
                 success_rate=report.success_rate if report else None,

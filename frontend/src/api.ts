@@ -18,8 +18,18 @@ export type CreateRunRequest = {
   scenario_count: number;
   model: string;
   run_mode: "single_turn" | "multi_turn";
+  test_profile: string;
   ship_threshold: number;
   hold_threshold: number;
+};
+
+export type TestProfile = {
+  id: string;
+  label: string;
+  description: string;
+  default_base_prompt: string;
+  default_success_criteria: string;
+  has_scoring_rules: boolean;
 };
 
 export type CreateRunResponse = {
@@ -77,6 +87,7 @@ export type ReportResponse = {
   success_criteria: string;
   model: string;
   run_mode: "single_turn" | "multi_turn";
+  test_profile: string;
   ship_threshold: number;
   hold_threshold: number;
   success_rate: number;
@@ -97,6 +108,7 @@ export type RunSummary = {
   scenario_count: number;
   model: string;
   run_mode: "single_turn" | "multi_turn";
+  test_profile: string;
   status: RunStatus["status"];
   progress_pct: number;
   success_rate: number | null;
@@ -160,6 +172,7 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => request<AuthResponse>("/api/auth/logout", { method: "POST" }),
+  listProfiles: () => request<TestProfile[]>("/api/profiles"),
   createRun: (body: CreateRunRequest) =>
     request<CreateRunResponse>("/api/runs", {
       method: "POST",
