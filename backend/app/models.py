@@ -39,6 +39,7 @@ class SimulationRun(Base):
     scenario_count: Mapped[int] = mapped_column(Integer)
     model: Mapped[str] = mapped_column(String(64))
     run_mode: Mapped[str] = mapped_column(String(24), default="single_turn")
+    test_profile: Mapped[str] = mapped_column(String(32), default="general")
     status: Mapped[str] = mapped_column(String(16), default="pending")
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)
     last_milestone_emitted: Mapped[int] = mapped_column(Integer, default=0)
