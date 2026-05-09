@@ -1,6 +1,13 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, TestProfile } from "../api";
+import {
+  api,
+  ConnectionType,
+  EndpointFormat,
+  TestConnectionResponse,
+  TestProfile,
+} from "../api";
+import { loadEndpointConfig, saveEndpointConfig } from "../endpointStore";
 import { getAnthropicKey, getOpenAIKey } from "../keyStore";
 
 const N_OPTIONS = [50, 100, 250, 500] as const;
@@ -42,6 +49,29 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
   // their text when they switch profiles.
   const [promptDirty, setPromptDirty] = useState(false);
   const [criteriaDirty, setCriteriaDirty] = useState(false);
+  // Agent connection
+  const [connectionType, setConnectionType] = useState<ConnectionType>("prompt");
+  const [endpointUrl, setEndpointUrl] = useState<string>("");
+  const [endpointFormat, setEndpointFormat] = useState<EndpointFormat>("openai_compat");
+  const [agentAuth, setAgentAuth] = useState<string>(""); // ephemeral, never persisted
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
+
+  // Hydrate endpoint URL/format (NOT auth) from localStorage.
+  useEffect(() => {
+    const stored = loadEndpointConfig();
+    if (stored) {
+      setEndpointUrl(stored.url);
+      setEndpointFormat(stored.format);
+    }
+  }, []);
+
+  // Persist URL/format whenever they change (still NOT the auth token).
+  useEffect(() => {
+    if (connectionType === "http_endpoint" && endpointUrl) {
+      saveEndpointConfig({ url: endpointUrl, format: endpointFormat });
+    }
+  }, [connectionType, endpointUrl, endpointFormat]);
 
   useEffect(() => {
     function refresh() {
@@ -95,20 +125,47 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
       return;
     }
     try {
-      const res = await api.createRun({
-        base_prompt: basePrompt,
-        success_criteria: criteria,
-        scenario_count: n,
-        model,
-        run_mode: runMode,
-        test_profile: profileId,
-        ship_threshold: shipThreshold,
-        hold_threshold: holdThreshold,
-      });
+      const res = await api.createRun(
+        {
+          base_prompt: basePrompt,
+          success_criteria: criteria,
+          scenario_count: n,
+          model,
+          run_mode: runMode,
+          test_profile: profileId,
+          connection_type: connectionType,
+          endpoint_url: connectionType === "http_endpoint" ? endpointUrl : null,
+          endpoint_format: connectionType === "http_endpoint" ? endpointFormat : null,
+          ship_threshold: shipThreshold,
+          hold_threshold: holdThreshold,
+        },
+        connectionType === "http_endpoint" && agentAuth ? agentAuth : null
+      );
       navigate(`/runs/${res.run_id}/progress`);
     } catch (err) {
       setError((err as Error).message);
       setSubmitting(false);
+    }
+  }
+
+  async function handleTestConnection() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await api.testConnection(
+        { url: endpointUrl, format: endpointFormat, model },
+        agentAuth || null
+      );
+      setTestResult(result);
+    } catch (err) {
+      setTestResult({
+        ok: false,
+        latency_ms: null,
+        sample_response: null,
+        error: (err as Error).message,
+      });
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -137,6 +194,100 @@ export default function Submit({ onOpenSettings }: { onOpenSettings: () => void 
           </button>
         </div>
       )}
+
+      <div className="space-y-3">
+        <label className="block text-sm font-medium text-slate-700">Where is your agent?</label>
+        <p className="text-xs text-slate-500">
+          <strong>Prompt</strong> mode tests a system prompt as a fresh OpenAI call — useful for
+          stress-testing prompt drafts. <strong>HTTP endpoint</strong> mode points Preflight at
+          your real deployed agent and exercises tools, RAG, and business logic.
+        </p>
+        <div className="flex gap-2">
+          {(["prompt", "http_endpoint"] as ConnectionType[]).map((opt) => {
+            const active = connectionType === opt;
+            const label = opt === "prompt" ? "Prompt" : "HTTP endpoint";
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setConnectionType(opt)}
+                className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                  active
+                    ? "border-sky-600 bg-sky-600 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {connectionType === "http_endpoint" && (
+          <div className="space-y-3 rounded-md border border-slate-200 bg-white p-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Endpoint URL</label>
+              <input
+                type="url"
+                required
+                value={endpointUrl}
+                onChange={(event) => setEndpointUrl(event.target.value)}
+                placeholder="https://api.myapp.com/agent/chat"
+                className="w-full rounded-md border border-slate-300 p-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-400"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Format</label>
+                <select
+                  value={endpointFormat}
+                  onChange={(event) =>
+                    setEndpointFormat(event.target.value as EndpointFormat)
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white p-2 text-sm"
+                >
+                  <option value="openai_compat">OpenAI-compatible chat</option>
+                  <option value="simple">Simple {`{message} -> {output}`}</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Auth header
+                  <span className="ml-2 font-normal text-slate-400 text-xs">
+                    (not stored)
+                  </span>
+                </label>
+                <input
+                  type="password"
+                  value={agentAuth}
+                  onChange={(event) => setAgentAuth(event.target.value)}
+                  placeholder="Bearer sk-..."
+                  autoComplete="off"
+                  className="w-full rounded-md border border-slate-300 p-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-400"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testing || !endpointUrl}
+                className="rounded-md border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                {testing ? "Testing…" : "Test connection"}
+              </button>
+              {testResult && testResult.ok && (
+                <span className="text-xs text-emerald-700">
+                  ✓ {testResult.latency_ms} ms — {testResult.sample_response?.slice(0, 80)}
+                </span>
+              )}
+              {testResult && !testResult.ok && (
+                <span className="text-xs text-red-700">✗ {testResult.error}</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div>
         <label className="mb-1 block text-sm font-medium text-slate-700">Test profile</label>

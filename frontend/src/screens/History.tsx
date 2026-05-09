@@ -39,6 +39,7 @@ export default function History() {
               <th className="px-4 py-2 text-left">Date</th>
               <th className="px-4 py-2 text-left">Prompt</th>
               <th className="px-4 py-2 text-left">Profile</th>
+              <th className="px-4 py-2 text-left">Connection</th>
               <th className="px-4 py-2 text-left">Mode</th>
               <th className="px-4 py-2 text-left">N</th>
               <th className="px-4 py-2 text-left">Status</th>
@@ -64,6 +65,11 @@ export default function History() {
                   </td>
                   <td className="px-4 py-3 capitalize text-xs text-slate-600">
                     {(run.test_profile ?? "general").replace(/_/g, " ")}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {run.connection_type === "http_endpoint" && run.endpoint_url
+                      ? new URL(run.endpoint_url).host
+                      : "Prompt"}
                   </td>
                   <td className="px-4 py-3 capitalize">
                     {run.run_mode === "multi_turn" ? "Multi turn" : "Single turn"}

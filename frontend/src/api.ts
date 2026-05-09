@@ -147,7 +147,10 @@ function readCookie(name: string): string | null {
 
 async function request<T>(
   path: string,
-  init?: RequestInit & { sendProviderKeys?: boolean }
+  init?: RequestInit & {
+    sendProviderKeys?: boolean;
+    agentAuthHeader?: string | null;
+  }
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -164,7 +167,14 @@ async function request<T>(
     if (openai) headers["X-OpenAI-Key"] = openai;
     if (anthropic) headers["X-Anthropic-Key"] = anthropic;
   }
-  const { sendProviderKeys: _omit, ...fetchInit } = init ?? {};
+  if (init?.agentAuthHeader) {
+    headers["X-Agent-Auth-Header"] = init.agentAuthHeader;
+  }
+  const {
+    sendProviderKeys: _omit,
+    agentAuthHeader: _omit2,
+    ...fetchInit
+  } = init ?? {};
   const res = await fetch(`${BASE}${path}`, {
     credentials: "include",
     ...fetchInit,
@@ -197,18 +207,33 @@ export const api = {
     }),
   logout: () => request<AuthResponse>("/api/auth/logout", { method: "POST" }),
   listProfiles: () => request<TestProfile[]>("/api/profiles"),
-  createRun: (body: CreateRunRequest) =>
+  testConnection: (
+    body: TestConnectionRequest,
+    agentAuthHeader?: string | null
+  ) =>
+    request<TestConnectionResponse>("/api/agents/test", {
+      method: "POST",
+      body: JSON.stringify(body),
+      agentAuthHeader: agentAuthHeader ?? null,
+    }),
+  createRun: (body: CreateRunRequest, agentAuthHeader?: string | null) =>
     request<CreateRunResponse>("/api/runs", {
       method: "POST",
       body: JSON.stringify(body),
       sendProviderKeys: true,
+      agentAuthHeader: agentAuthHeader ?? null,
     }),
   getStatus: (runId: string) => request<RunStatus>(`/api/runs/${runId}/status`),
   getReport: (runId: string) => request<ReportResponse>(`/api/runs/${runId}/report`),
   listRuns: () => request<RunSummary[]>("/api/runs"),
-  rerunScenario: (runId: string, scenarioId: string) =>
+  rerunScenario: (
+    runId: string,
+    scenarioId: string,
+    agentAuthHeader?: string | null
+  ) =>
     request<RerunResponse>(`/api/runs/${runId}/scenarios/${scenarioId}/rerun`, {
       method: "POST",
       sendProviderKeys: true,
+      agentAuthHeader: agentAuthHeader ?? null,
     }),
 };

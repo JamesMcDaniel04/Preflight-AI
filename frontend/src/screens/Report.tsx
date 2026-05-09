@@ -40,6 +40,13 @@ export default function Report() {
         <span className="mx-2 text-slate-400">|</span>
         Mode: <span className="font-medium">{report.run_mode === "multi_turn" ? "Multi turn" : "Single turn"}</span>
         <span className="mx-2 text-slate-400">|</span>
+        Connection:{" "}
+        <span className="font-medium">
+          {report.connection_type === "http_endpoint" && report.endpoint_url
+            ? `HTTP — ${new URL(report.endpoint_url).host}`
+            : "Prompt"}
+        </span>
+        <span className="mx-2 text-slate-400">|</span>
         Ship threshold: <span className="font-medium">{Math.round(report.ship_threshold * 100)}%</span>
         <span className="mx-2 text-slate-400">|</span>
         Hold threshold: <span className="font-medium">{Math.round(report.hold_threshold * 100)}%</span>
